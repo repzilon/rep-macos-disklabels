@@ -49,11 +49,18 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 
 		private string OperatingSystem(string orElse)
 		{
-			if ((this.OSFamily != PlatformID.Other) && (this.OSVersion.Major > 0)) {
-				return this.OSFamily + " " + this.OSVersion;
+			var family = this.OSFamily;
+			var version = this.OSVersion;
+			if ((family != PlatformID.Other) && (version.Major > 0)) {
+				return family.ToString("g") + " " + version.ToString(3);
 			} else {
 				return orElse;
 			}
+		}
+
+		public string IdentifierString()
+		{
+			return this.Identifier.ToString("D").ToUpperInvariant();
 		}
 
 		public override readonly string ToString()

@@ -39,14 +39,14 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 	{
 		private static Process StartExec(string fullExecutablePath, string commandLineArguments)
 		{
-			var psi = new ProcessStartInfo();
-			psi.UseShellExecute = false;
-			psi.FileName = fullExecutablePath;
-			psi.Arguments = commandLineArguments;
-			psi.RedirectStandardOutput = true;
-			psi.CreateNoWindow = false;
 			var process = new Process();
-			process.StartInfo = psi;
+			process.StartInfo = new ProcessStartInfo {
+				UseShellExecute = false,
+				FileName = fullExecutablePath,
+				Arguments = commandLineArguments,
+				RedirectStandardOutput = true,
+				CreateNoWindow = false
+			};
 			process.Start();
 			return process;
 		}
@@ -54,6 +54,7 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 		static void Main(string[] args)
 		{
 			VolumeInfo vol;
+			string strLine, strPath;
 
 #if false
 			var drvarDotNet = DriveInfo.GetDrives();
@@ -76,21 +77,22 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 #endif
 
 			var lstDiskutilVolumes = new List<VolumeInfo>();
-			var prcDiskUtilList = StartExec("/usr/sbin/diskutil", "list");
 
-			while (!prcDiskUtilList.StandardOutput.EndOfStream) {
-				var strLine = prcDiskUtilList.StandardOutput.ReadLine();
-				if (!String.IsNullOrEmpty(strLine)) {
-					var mtcDiskutil = Regex.Match(strLine, @"[0-9]+:[ ]+(Apple_APFS|Microsoft Basic Data|APFS Volume|EFI|Apple_HFS)[ ](.+)[ ]([0-9.]+) ([KMGT])B[ ]+(disk[0-9]+s[0-9])");
-					if ((mtcDiskutil != null) && mtcDiskutil.Success) {
-						var grcDiskutil = mtcDiskutil.Groups;
-						vol = new VolumeInfo();
-						vol.Capacity = CapacityFromDiskutil(grcDiskutil[3].Value, grcDiskutil[4].Value[0]);
-						vol.DeviceNode = grcDiskutil[5].Value;
-						vol.FileSystemFormat = FileSystemFormatFromDiskutil(grcDiskutil[1].Value);
-						vol.VolumeName = grcDiskutil[2].Value.Trim();
-						vol.OSFamily = PlatformID.Other;
-						lstDiskutilVolumes.Add(vol);
+			using (var prcDiskUtilList = StartExec("/usr/sbin/diskutil", "list")) {
+				while (!prcDiskUtilList.StandardOutput.EndOfStream) {
+					strLine = prcDiskUtilList.StandardOutput.ReadLine();
+					if (!String.IsNullOrEmpty(strLine)) {
+						var mtcDiskutil = Regex.Match(strLine, @"[0-9]+:[ ]+(Apple_APFS|Microsoft Basic Data|APFS Volume|EFI|Apple_HFS)[ ](.+)[ ]([0-9.]+) ([KMGT])B[ ]+(disk[0-9]+s[0-9])");
+						if ((mtcDiskutil != null) && mtcDiskutil.Success) {
+							var grcDiskutil = mtcDiskutil.Groups;
+							vol = new VolumeInfo();
+							vol.Capacity = CapacityFromDiskutil(grcDiskutil[3].Value, grcDiskutil[4].Value[0]);
+							vol.DeviceNode = grcDiskutil[5].Value;
+							vol.FileSystemFormat = FileSystemFormatFromDiskutil(grcDiskutil[1].Value);
+							vol.VolumeName = grcDiskutil[2].Value.Trim();
+							vol.OSFamily = PlatformID.Other;
+							lstDiskutilVolumes.Add(vol);
+						}
 					}
 				}
 			}
@@ -100,56 +102,58 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 			for (int i = 0; i < c1; i++) {
 				vol = lstDiskutilVolumes[i];
 
-				var prcDiskUtilInfo = StartExec("/usr/sbin/diskutil", "info " + vol.DeviceNode);
-				while (!prcDiskUtilInfo.StandardOutput.EndOfStream) {
-					var strLine = prcDiskUtilInfo.StandardOutput.ReadLine();
-					if (!String.IsNullOrEmpty(strLine)) {
-						if (strLine.Contains("Volume Name:")) {
-							if (!vol.VolumeName.StartsWith("Container disk")) {
-								vol.VolumeName = strLine.Replace("Volume Name:", "").Trim();
-							}
-						} else if (strLine.Contains("Mounted:")) {
-							vol.Mounted = strLine.Contains("Yes");
-						} else if (strLine.Contains("Mount Point:")) {
-							vol.MountPoint = strLine.Replace("Mount Point:", "").Trim();
-						} else if (strLine.Contains("File System Personality:")) {
-							if (vol.FileSystemFormat != "efi") {
-								vol.FileSystemFormat = FileSystemFormatFromDiskutil(strLine.Replace("File System Personality:", "").Trim());
-							}
-						} else if (strLine.Contains("Disk / Partition UUID:")) {
-							vol.Identifier = Guid.Parse(strLine.Replace("Disk / Partition UUID:", "").Trim());
-						} else if (strLine.Contains("Container Total Space:") || strLine.Contains("Volume Total Space:")) {
-							var strData = strLine.Replace("Container Total Space:", "").Replace("Volume Total Space:", "").Trim();
-							var mtcCapacity = Regex.Match(strData, @"[0-9.]+ [A-Z]B [(]([0-9]+) Bytes");
-							if ((mtcCapacity != null) && mtcCapacity.Success) {
-								vol.Capacity = Int64.Parse(mtcCapacity.Groups[1].Value);
+				using (var prcDiskUtilInfo = StartExec("/usr/sbin/diskutil", "info " + vol.DeviceNode)) {
+					while (!prcDiskUtilInfo.StandardOutput.EndOfStream) {
+						strLine = prcDiskUtilInfo.StandardOutput.ReadLine();
+						if (!String.IsNullOrEmpty(strLine)) {
+							if (strLine.Contains("Volume Name:")) {
+								if (!vol.VolumeName.StartsWith("Container disk")) {
+									vol.VolumeName = ValueOfLinePair(strLine, "Volume Name:");
+								}
+							} else if (strLine.Contains("Mounted:")) {
+								vol.Mounted = strLine.Contains("Yes");
+							} else if (strLine.Contains("Mount Point:")) {
+								vol.MountPoint = ValueOfLinePair(strLine, "Mount Point:");
+							} else if (strLine.Contains("File System Personality:")) {
+								var fst = vol.FileSystemFormat;
+								if ((fst != "efi") && (fst != "apfs")) {
+									vol.FileSystemFormat = FileSystemFormatFromDiskutil(ValueOfLinePair(strLine, "File System Personality:"));
+								}
+							} else if (strLine.Contains("Disk / Partition UUID:")) {
+								vol.Identifier = Guid.Parse(ValueOfLinePair(strLine, "Disk / Partition UUID:"));
+							} else if (strLine.Contains("Container Total Space:") || strLine.Contains("Volume Total Space:")) {
+								var strData = ValueOfLinePair(strLine, "Container Total Space:", "Volume Total Space:");
+								var mtcCapacity = Regex.Match(strData, @"[0-9.]+ [A-Z]B [(]([0-9]+) Bytes");
+								if ((mtcCapacity != null) && mtcCapacity.Success) {
+									vol.Capacity = Int64.Parse(mtcCapacity.Groups[1].Value);
+								}
 							}
 						}
 					}
 				}
 
 				if (vol.MountPoint == null) {
-					var strStdMountPoint = Path.Combine("/Volumes", vol.VolumeName);
-					if (Directory.Exists(strStdMountPoint)) {
-						vol.MountPoint = strStdMountPoint;
+					strPath = Path.Combine("/Volumes", vol.VolumeName);
+					if (Directory.Exists(strPath)) {
+						vol.MountPoint = strPath;
 					}
 				}
 
 				if (vol.MountPoint != null) {
 					var driMount = new DirectoryInfo(vol.MountPoint);
 					vol.MountPoint = (driMount.LinkTarget != null) ? driMount.LinkTarget : vol.MountPoint;
-					var strMacosVersionPlistPath = Path.Combine(vol.MountPoint, "System/Library/CoreServices/SystemVersion.plist");
-					if (File.Exists(strMacosVersionPlistPath)) {
+					strPath = Path.Combine(vol.MountPoint, "System/Library/CoreServices/SystemVersion.plist");
+					if (File.Exists(strPath)) {
 						vol.Mounted = true;
 						vol.OSFamily = PlatformID.MacOSX;
 
-						using (var smrVersionPlist = File.OpenText(strMacosVersionPlistPath)) {
+						using (var smrVersionPlist = File.OpenText(strPath)) {
 							var enuProductVersion = PropertyListReading.NotFound;
 							while (!smrVersionPlist.EndOfStream && (enuProductVersion != PropertyListReading.ValueWasRead)) {
-								var strLine = smrVersionPlist.ReadLine();
+								strLine = smrVersionPlist.ReadLine();
 								if (!String.IsNullOrEmpty(strLine)) {
 									if (enuProductVersion == PropertyListReading.KeyWasRead) {
-										vol.OSVersion = Version.Parse(strLine.Trim().Replace("</string>", "").Replace("<string>", "").Trim());
+										vol.OSVersion = Version.Parse(ValueOfLinePair(strLine, "</string>", "<string>"));
 										enuProductVersion = PropertyListReading.ValueWasRead;
 									} else if (strLine.Contains("ProductVersion")) {
 										enuProductVersion = PropertyListReading.KeyWasRead;
@@ -160,39 +164,39 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 					}
 				}
 
-				var strBootLabelFile = Path.Combine("/System/Volumes/Preboot", vol.Identifier.ToString().ToUpperInvariant(), "System/Library/CoreServices/.disk_label.contentDetails");
-				if (File.Exists(strBootLabelFile)) {
-					vol.OpenCoreLabel = File.ReadAllText(strBootLabelFile);
+				strPath = Path.Combine("/System/Volumes/Preboot", vol.IdentifierString(), "System/Library/CoreServices/.disk_label.contentDetails");
+				if (File.Exists(strPath)) {
+					vol.OpenCoreLabel = File.ReadAllText(strPath);
 				}
 
 				lstDiskutilVolumes[i] = vol;
 			}
 
-			Console.WriteLine("From diskutil executable");
+			Console.WriteLine("From diskutil executable:");
 			OutputVolumes(lstDiskutilVolumes);
 #if false
 			Console.Write(Environment.NewLine);
-			Console.WriteLine("From System.DriveInfo");
+			Console.WriteLine("From System.DriveInfo:");
 			OutputVolumes(lstDriveInfoVolumes);
 #endif
-
-			// echo "$label" > /System/Volumes/Preboot/$uuid/System/Library/CoreServices/.disk_label.contentDetails 
 		}
 
 		private static long CapacityFromDiskutil(string number, char prefix)
 		{
-			const int kThousand = 1000;
-			double f64Capacity = Double.Parse(number, CultureInfo.InvariantCulture);
+			const short kThousand = 1000;
+			long i64Capacity;
 			if (prefix == 'T') {
-				f64Capacity *= kThousand * kThousand * kThousand * (long)kThousand;
+				i64Capacity = kThousand * kThousand * kThousand * (long)kThousand;
 			} else if (prefix == 'G') {
-				f64Capacity *= kThousand * kThousand * kThousand;
+				i64Capacity = kThousand * kThousand * kThousand;
 			} else if (prefix == 'M') {
-				f64Capacity *= kThousand * kThousand;
+				i64Capacity = kThousand * kThousand;
 			} else if (prefix == 'K') {
-				f64Capacity *= kThousand;
+				i64Capacity = kThousand;
+			} else {
+				i64Capacity = 1;
 			}
-			return Convert.ToInt64(f64Capacity);
+			return (long)(Double.Parse(number, CultureInfo.InvariantCulture) * i64Capacity);
 		}
 
 		private static string FileSystemFormatFromDiskutil(string diskUtilType)
@@ -222,8 +226,19 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 				var v = volumes[i];
 				Console.WriteLine("{0,-11}|{1,-15}|{2,13:n0}|  {3}  |{4,-14}|{5}",
 				 v.DeviceNode, v.FileSystemFormat, v.Capacity / 1024, v.Mounted ? 'Y' : ' ', v.OperatingSystem(), v.VolumeName);
-				Console.WriteLine("\t{0}|{1,-10}|{2}", v.Identifier.ToString().ToUpperInvariant(), v.OpenCoreLabel, v.MountPoint);
+				Console.WriteLine("\t{0}|{1,-10}|{2}", v.IdentifierString(), v.OpenCoreLabel, v.MountPoint);
 			}
+		}
+
+		private static string ValueOfLinePair(string line, string key)
+		{
+			return line.Replace(key, "").Trim();
+		}
+
+		private static string ValueOfLinePair(string line, string key1, string key2)
+		{
+			string empty = "";
+			return line.Replace(key1, empty).Replace(key2, empty).Trim();
 		}
 	}
 }
