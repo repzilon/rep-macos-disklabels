@@ -63,7 +63,7 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 			return this.Identifier.ToString("D").ToUpperInvariant();
 		}
 
-		public override readonly string ToString()
+		public readonly override string ToString()
 		{
 			return this.VolumeName;
 		}

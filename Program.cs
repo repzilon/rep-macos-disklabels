@@ -97,7 +97,6 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 				}
 			}
 
-			var strarInVolumes = Directory.GetDirectories("/Volumes");
 			int c1 = lstDiskutilVolumes.Count;
 			for (int i = 0; i < c1; i++) {
 				vol = lstDiskutilVolumes[i];
@@ -218,7 +217,7 @@ namespace Repzilon.Utilities.MacOSX.DiskLabels
 
 		private static void OutputVolumes(IList<VolumeInfo> volumes)
 		{
-			Console.WriteLine("Device node|Filesysyem type|1024-blocks  |Ready|Installed OS  |Name");
+			Console.WriteLine("Device node|Filesystem type|1024-blocks  |Ready|Installed OS  |Name");
 			Console.WriteLine("\tUUID                                 |Boot Label|Mount point");
 			Console.WriteLine(new String('-', 78));
 			var c = volumes.Count;
